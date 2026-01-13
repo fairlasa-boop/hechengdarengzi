@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+    <title>合成大西瓜 - 诊断修复版</title>
+    
+    <style>
+        /* 诊断控制台样式 (最上层) */
+        #debug-console {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #222; color: #0f0; z-index: 99999;
+            padding: 20px; box-sizing: border-box; font-family: monospace;
+            overflow-y: auto; white-space: pre-wrap;
+            display: block; /* 默认显示，加载成功后隐藏 */
+        }
+        .log-error { color: #ff5555; font-weight: bold; border: 1px solid #ff5555; padding: 5px; margin: 5px 0; }
+        .log-info { color: #aaa; }
+        .log-success { color: #55ff55; font-weight: bold; }
+        
+        /* 隐藏游戏元素直到加载完成 */
+        body.loading #game-wrapper, 
+        body.loading #sidebar, 
+        body.loading #toggle-btn { opacity: 0; }
+        
+        /* 游戏原有样式 */
+        :root { --bg-color: #FFF3E0; --sidebar-bg: #FFFFFF; --accent-color: #FF7043; --text-color: #455A64; --danger-color: #e53935; }
+        body { margin: 0; padding: 0; background-color: var(--bg-color); font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; overflow: hidden; display: flex; flex-direction: row; height: 100vh; color: var(--text-color); user-select: none; }
+        #game-wrapper { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; background: linear-gradient(to bottom, #FFFDE7, var(--bg-color)); width: 100%; height: 100%; transition: opacity 0.5s; }
+        #canvas-container { position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.15); border-radius: 8px; overflow: hidden; background-color: #fff; width: 450px; height: 750px; flex-shrink: 0; max-width: 100%; max-height: 100%; }
+        canvas { display: block; width: 100%; height: 100%; }
+        #toggle-btn { position: absolute; top: 15px; left: 15px; z-index: 1000; background: rgba(255, 255, 255, 0.9); border: none; border-radius: 8px; padding: 8px 12px; font-size: 20px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.2); color: #333; transition: transform 0.2s; }
+        #sidebar { width: 300px; background: var(--sidebar-bg); box-shadow: 5px 0 15px rgba(0,0,0,0.05); padding: 20px; overflow-y: auto; display: flex; flex-direction: column; z-index: 999; position: absolute; left: 0; top: 0; height: 100%; transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1); transform: translateX(0); box-sizing: border-box; }
+        #sidebar.closed { transform: translateX(-100%); }
+        #sidebar-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); z-index: 998; display: none; opacity: 0; transition: opacity 0.3s; }
+        #sidebar-overlay.visible { display: block; opacity: 1; }
+        #deadline-line { position: absolute; top: 120px; left: 0; width: 100%; height: 0; border-top: 2px dashed var(--danger-color); z-index: 10; pointer-events: none; opacity: 0.5; transition: opacity 0.3s; }
+        #deadline-line.danger { opacity: 1; border-top-width: 3px; }
+        #game-over-modal { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; flex-direction: column; justify-content: center; align-items: center; z-index: 100; color: white; animation: fadeIn 0.4s; }
+        .game-over-text { font-size: 36px; font-weight: 800; margin-bottom: 10px; color: #FF5252; letter-spacing: 2px; }
+        .final-score-num { font-size: 48px; font-weight: bold; margin-bottom: 30px; color: #fff; }
+        .restart-btn-big { padding: 12px 36px; background: var(--accent-color); color: white; border: none; border-radius: 50px; font-size: 18px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(255, 112, 67, 0.5); }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .score-board-container { background: var(--accent-color); color: white; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(255, 112, 67, 0.3); }
+        .score-num { font-size: 32px; font-weight: bold; }
+        .fruit-upload-item { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #f1f1f1; }
+        .preview-circle { width: 32px; height: 32px; border-radius: 50%; margin-right: 10px; border: 2px solid #f1f1f1; background-size: cover; background-position: center; flex-shrink: 0; }
+        .fruit-name { font-size: 13px; font-weight: 600; color: #555; width: 60px;}
+        .custom-file-upload { border: 1px solid #e0e0e0; padding: 5px 10px; cursor: pointer; border-radius: 4px; font-size: 12px; color: #666; background: #fafafa; flex-grow: 1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        input[type="file"] { display: none; }
+        .btn-group { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+        .action-btn { padding: 12px; cursor: pointer; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; width: 100%; }
+        .reset-btn { background-color: #ECEFF1; color: #455A64; }
+        .export-btn { background-color: #4CAF50; color: white; }
+        @media (max-width: 768px) {
+            #sidebar { width: 85%; max-width: 320px; }
+            .action-btn { padding: 14px; }
+        }
+    </style>
+</head>
+<body class="loading">
+
+    <div id="debug-console">
+        <h3>系统启动日志 (System Log)</h3>
+        <div id="log-content">等待脚本加载...</div>
+    </div>
+
+    <script>
+        const logBox = document.getElementById('log-content');
+        function log(msg, type='info') {
+            const div = document.createElement('div');
+            div.className = `log-${type}`;
+            div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            logBox.appendChild(div);
+            console.log(msg);
+        }
+        function logError(msg) { log(msg, 'error'); }
+        function logSuccess(msg) { log(msg, 'success'); }
+
+        // 捕获全局错误
+        window.onerror = function(msg, url, line) {
+            logError(`致命错误: ${msg}\n位置: 第${line}行`);
+            return false;
+        };
+
+        log("页面结构加载完成");
+    </script>
+
+    <script src="https://cdn.bootcdn.net/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+
+    <button id="toggle-btn" onclick="toggleSidebar()">☰ 设置</button>
+    <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+    <div id="sidebar">
+        <div class="score-board-container">
+            <div style="font-size:13px; opacity:0.9">得分 SCORE</div>
+            <div class="score-num" id="score">0</div>
+        </div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h3 style="margin:0; color:#333;">自定义皮肤</h3>
+            <span style="font-size:12px; color:#999; cursor:pointer;" onclick="toggleSidebar()">✖ 收起</span>
+        </div>
+        <div id="upload-list"></div>
+        <div class="btn-group">
+            <button class="action-btn export-btn" onclick="exportGame()">💾 保存并导出游戏</button>
+            <button class="action-btn reset-btn" onclick="startGame()">↺ 重置游戏</button>
+        </div>
+    </div>
+
+    <div id="game-wrapper">
+        <div id="canvas-container">
+            <div id="deadline-line"></div>
+            <div id="game-over-modal">
+                <div class="game-over-text">GAME OVER</div>
+                <div class="final-score-num" id="final-score-num">0</div>
+                <button class="restart-btn-big" onclick="startGame()">再玩一次</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // --- 启动检查 ---
+    log("开始检查 Matter.js 引擎...");
+    if (typeof Matter === 'undefined') {
+        logError("Matter.js 加载失败！请检查网络连接。\n尝试刷新页面。");
+        // 尝试备用源
+        log("尝试加载备用源...");
+        var script = document.createElement('script');
+        script.src = "https://lib.baomitu.com/matter-js/0.19.0/matter.min.js";
+        script.onload = function() { logSuccess("备用源加载成功！"); initAll(); };
+        document.head.appendChild(script);
+    } else {
+        logSuccess("Matter.js 引擎就绪！");
+        initAll();
+    }
+
+    // --- 全局变量 ---
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const isMobile = window.innerWidth <= 768;
+    if (isMobile) sidebar.classList.add('closed');
+
+    var FRUITS = [
+        { name: "葡萄", radius: 25, color: "#BA68C8", level: 0, img: null },
+        { name: "樱桃", radius: 35, color: "#EF5350", level: 1, img: null },
+        { name: "橘子", radius: 48, color: "#FF9800", level: 2, img: null },
+        { name: "柠檬", radius: 60, color: "#FFEE58", level: 3, img: null },
+        { name: "猕猴桃",radius: 75, color: "#9CCC65", level: 4, img: null },
+        { name: "西红柿",radius: 90, color: "#FF7043", level: 5, img: null },
+        { name: "桃子", radius: 105, color: "#F06292", level: 6, img: null },
+        { name: "菠萝", radius: 120, color: "#FFCA28", level: 7, img: null },
+        { name: "椰子", radius: 135, color: "#8D6E63", level: 8, img: null },
+        { name: "半西瓜", radius: 150, color: "#D32F2F", level: 9, img: null },
+        { name: "大西瓜", radius: 170, color: "#66BB6A", level: 10, img: null }
+    ];
+
+    const TEXTURE_SIZE = 512;
+    const DEADLINE_Y = 120;
+    const DANGER_THRESHOLD = 120;
+    const GAME_WIDTH = 450;
+    const GAME_HEIGHT = 750;
+
+    let Engine, Render, Runner, Bodies, World, Events, Composite;
+    let engine = null, render = null, runner = null, currentFruit = null;
+    let isDropping = false, isGameOver = false, score = 0, dangerTimer = 0;
+
+    function initAll() {
+        try {
+            log("初始化游戏逻辑...");
+            initUI();
+            startGame();
+            
+            // 成功启动后，隐藏日志，显示游戏
+            logSuccess("游戏启动成功！正在进入...");
+            setTimeout(() => {
+                document.getElementById('debug-console').style.display = 'none';
+                document.body.classList.remove('loading');
+            }, 1000);
+            
+        } catch (e) {
+            logError("初始化崩溃: " + e.message);
+            console.error(e);
+        }
+    }
+
+    function toggleSidebar() {
+        sidebar.classList.toggle('closed');
+        if (sidebar.classList.contains('closed')) {
+            overlay.classList.remove('visible');
+            setTimeout(() => { if(!overlay.classList.contains('visible')) overlay.style.display = 'none'; }, 300);
+        } else {
+            overlay.style.display = 'block';
+            setTimeout(() => overlay.classList.add('visible'), 10);
+        }
+    }
+
+    function startGame() {
+        ({ Engine, Render, Runner, Bodies, World, Events, Composite } = Matter);
+
+        if (runner) { Runner.stop(runner); runner = null; }
+        if (render) {
+            Render.stop(render);
+            if (render.canvas) render.canvas.remove();
+            render = null;
+        }
+        if (engine) { World.clear(engine.world); Engine.clear(engine); engine = null; }
+
+        currentFruit = null; isDropping = false; isGameOver = false; score = 0; dangerTimer = 0;
+        document.getElementById('score').innerText = '0';
+        document.getElementById('game-over-modal').style.display = 'none';
+        document.getElementById('deadline-line').classList.remove('danger');
+
+        engine = Engine.create({ gravity: { x: 0, y: 1.2 } });
+
+        const container = document.getElementById('canvas-container');
+        render = Render.create({
+            element: container,
+            engine: engine,
+            options: { width: GAME_WIDTH, height: GAME_HEIGHT, wireframes: false, background: '#FFFFFF', pixelRatio: window.devicePixelRatio || 1 }
+        });
+
+        const wallOpts = { isStatic: true, render: { fillStyle: '#ECEFF1' }, friction: 0.1 };
+        World.add(engine.world, [
+            Bodies.rectangle(GAME_WIDTH/2, GAME_HEIGHT+30, GAME_WIDTH+60, 60, wallOpts),
+            Bodies.rectangle(-30, GAME_HEIGHT/2, 60, GAME_HEIGHT*2, wallOpts),
+            Bodies.rectangle(GAME_WIDTH+30, GAME_HEIGHT/2, 60, GAME_HEIGHT*2, wallOpts)
+        ]);
+
+        Render.run(render);
+        runner = Runner.create();
+        Runner.run(runner, engine);
+        createNewFruit();
+
+        const canvas = render.canvas;
+        canvas.addEventListener('mousemove', e => handleMove(e.clientX));
+        canvas.addEventListener('mouseup', handleEnd);
+        canvas.addEventListener('touchmove', e => { e.preventDefault(); handleMove(e.touches[0].clientX); }, { passive: false });
+        canvas.addEventListener('touchend', handleEnd);
+
+        Events.on(engine, 'collisionStart', handleCollision);
+        Events.on(engine, 'afterUpdate', checkGameOverLogic);
+    }
+
+    function initUI() {
+        const list = document.getElementById('upload-list');
+        list.innerHTML = '';
+        FRUITS.forEach((fruit, index) => {
+            const div = document.createElement('div');
+            div.className = 'fruit-upload-item';
+            div.innerHTML = `
+                <div class="preview-circle" id="preview-${index}" style="background-color: ${fruit.color}; ${fruit.img ? 'background-image:url('+fruit.img+')' : ''}"></div>
+                <div class="fruit-name">${fruit.name}</div>
+                <label for="file-${index}" class="custom-file-upload" id="label-${index}">${fruit.img ? '已设置' : '选择'}</label>
+                <input type="file" id="file-${index}" accept="image/*">
+            `;
+            list.appendChild(div);
+            document.getElementById(`file-${index}`).addEventListener('change', (e) => handleImageUpload(e, index));
+        });
+    }
+
+    function processCircularImage(imgDataUrl, callback) {
+        const img = new Image();
+        img.onload = function() {
+            const size = Math.min(img.width, img.height);
+            const canvas = document.createElement('canvas');
+            canvas.width = TEXTURE_SIZE;
+            canvas.height = TEXTURE_SIZE;
+            const ctx = canvas.getContext('2d');
+            ctx.beginPath();
+            ctx.arc(TEXTURE_SIZE/2, TEXTURE_SIZE/2, TEXTURE_SIZE/2, 0, Math.PI*2);
+            ctx.closePath();
+            ctx.clip();
+            const sx = (img.width - size)/2;
+            const sy = (img.height - size)/2;
+            ctx.drawImage(img, sx, sy, size, size, 0, 0, TEXTURE_SIZE, TEXTURE_SIZE);
+            callback(canvas.toDataURL('image/png'));
+        };
+        img.src = imgDataUrl;
+    }
+
+    function handleImageUpload(event, index) {
+        const file = event.target.files[0];
+        if (file) {
+            document.getElementById(`label-${index}`).innerText = "OK";
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                processCircularImage(e.target.result, (circularDataUrl) => {
+                    FRUITS[index].img = circularDataUrl; 
+                    const preview = document.getElementById(`preview-${index}`);
+                    preview.style.backgroundImage = `url(${circularDataUrl})`;
+                    preview.style.backgroundColor = 'transparent'; 
+                    refreshSkins(index);
+                });
+            };
+            reader.readAsDataURL(file);
+        }
+    }
+
+    function refreshSkins(index) {
+        if (!engine) return;
+        const config = FRUITS[index];
+        const correctScale = (config.radius * 2) / TEXTURE_SIZE;
+        Composite.allBodies(engine.world).forEach(body => {
+            if (body.label === 'fruit' && body.customId === index) {
+                body.render.sprite.texture = config.img;
+                body.render.sprite.xScale = body.render.sprite.yScale = correctScale;
+            }
+        });
+    }
+
+    function getRenderOptions(config) {
+        if (config.img) {
+            const scale = (config.radius * 2) / TEXTURE_SIZE;
+            return { sprite: { texture: config.img, xScale: scale, yScale: scale } };
+        }
+        return { fillStyle: config.color, strokeStyle: 'rgba(255,255,255,0.2)', lineWidth: 2 };
+    }
+
+    function createNewFruit() {
+        if (isGameOver) return;
+        const index = Math.floor(Math.random() * 4); 
+        const config = FRUITS[index];
+        currentFruit = Bodies.circle(GAME_WIDTH / 2, 50, config.radius, {
+            isStatic: true, label: 'fruit', customId: index, render: getRenderOptions(config)
+        });
+        World.add(engine.world, currentFruit);
+    }
+
+    function handleMove(clientX) {
+        if (!currentFruit || isDropping || isGameOver) return;
+        const rect = render.canvas.getBoundingClientRect();
+        const scaleX = render.canvas.width / rect.width; 
+        let x = (clientX - rect.left) * scaleX;
+        const padding = currentFruit.circleRadius;
+        x = Math.max(padding, Math.min(x, GAME_WIDTH - padding));
+        Matter.Body.setPosition(currentFruit, { x: x, y: 50 });
+    }
+
+    function handleEnd() {
+        if (!currentFruit || isDropping || isGameOver) return;
+        if (sidebar.contains(event.target) || document.getElementById('toggle-btn').contains(event.target)) return;
+
+        isDropping = true;
+        currentFruit.isDropping = true;
+        Matter.Body.setStatic(currentFruit, false);
+        const dropped = currentFruit;
+        currentFruit = null;
+        setTimeout(() => {
+            if (dropped) dropped.isDropping = false;
+            isDropping = false;
+            if (!isGameOver) createNewFruit();
+        }, 800);
+    }
+
+    function handleCollision(event) {
+        if (isGameOver) return;
+        const pairs = event.pairs;
+        for (let i = 0; i < pairs.length; i++) {
+            const { bodyA, bodyB } = pairs[i];
+            if (bodyA.label === 'fruit' && bodyB.label === 'fruit' && bodyA.customId === bodyB.customId) {
+                if (bodyA.isMerging || bodyB.isMerging) continue;
+                bodyA.isMerging = bodyB.isMerging = true;
+                const newId = bodyA.customId + 1;
+                if (newId < FRUITS.length) {
+                    const midX = (bodyA.position.x + bodyB.position.x) / 2;
+                    const midY = (bodyA.position.y + bodyB.position.y) / 2;
+                    World.remove(engine.world, [bodyA, bodyB]);
+                    const newConfig = FRUITS[newId];
+                    const newBody = Bodies.circle(midX, midY, newConfig.radius, {
+                        label: 'fruit', customId: newId, render: getRenderOptions(newConfig)
+                    });
+                    World.add(engine.world, newBody);
+                    score += (newId + 1) * 10;
+                    document.getElementById('score').innerText = score;
+                }
+            }
+        }
+    }
+
+    function checkGameOverLogic() {
+        if (isGameOver) return;
+        const bodies = Composite.allBodies(engine.world);
+        let isDanger = false;
+        const line = document.getElementById('deadline-line');
+        for (let body of bodies) {
+            if (body.label === 'fruit' && body !== currentFruit && !body.isDropping) {
+                if (body.position.y - body.circleRadius < DEADLINE_Y && body.speed < 0.5) {
+                    isDanger = true; break;
+                }
+            }
+        }
+        if (isDanger) {
+            dangerTimer++;
+            line.classList.add('danger');
+        } else {
+            dangerTimer = 0;
+            line.classList.remove('danger');
+        }
+        if (dangerTimer > DANGER_THRESHOLD) {
+            isGameOver = true;
+            Runner.stop(runner);
+            document.getElementById('final-score-num').innerText = score;
+            document.getElementById('game-over-modal').style.display = 'flex';
+        }
+    }
+
+    function exportGame() {
+        if (!confirm("导出将生成一个包含当前图片的新文件，可直接发送给朋友。\n确定导出吗？")) return;
+        const docClone = document.documentElement.cloneNode(true);
+        // 移除调试控制台
+        docClone.querySelector('#debug-console').remove();
+        docClone.body.classList.remove('loading');
+        
+        const canvasContainer = docClone.querySelector('#canvas-container');
+        const oldCanvas = canvasContainer.querySelector('canvas');
+        if (oldCanvas) oldCanvas.remove();
+        docClone.querySelector('#game-over-modal').style.display = 'none';
+        
+        const sidebarClone = docClone.querySelector('#sidebar');
+        sidebarClone.classList.add('closed'); 
+
+        let htmlContent = docClone.outerHTML;
+        const fruitsData = JSON.stringify(FRUITS);
+        htmlContent = htmlContent.replace(/var FRUITS = \[\s*\{[\s\S]*?\}\s*\]/, `var FRUITS = ${fruitsData}`);
+
+        const blob = new Blob([htmlContent], { type: 'text/html' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = '我的合成大西瓜_修复版.html';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+</script>
+</body>
+</html>
