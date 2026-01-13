@@ -3,30 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>合成大西瓜 - 诊断修复版</title>
+    <title>合成大西瓜 - 最终修复版</title>
     
     <style>
-        /* 诊断控制台样式 (最上层) */
+        /* 诊断控制台 */
         #debug-console {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: #222; color: #0f0; z-index: 99999;
             padding: 20px; box-sizing: border-box; font-family: monospace;
             overflow-y: auto; white-space: pre-wrap;
-            display: block; /* 默认显示，加载成功后隐藏 */
         }
         .log-error { color: #ff5555; font-weight: bold; border: 1px solid #ff5555; padding: 5px; margin: 5px 0; }
         .log-info { color: #aaa; }
         .log-success { color: #55ff55; font-weight: bold; }
         
-        /* 隐藏游戏元素直到加载完成 */
-        body.loading #game-wrapper, 
-        body.loading #sidebar, 
-        body.loading #toggle-btn { opacity: 0; }
-        
-        /* 游戏原有样式 */
+        /* 样式定义 */
         :root { --bg-color: #FFF3E0; --sidebar-bg: #FFFFFF; --accent-color: #FF7043; --text-color: #455A64; --danger-color: #e53935; }
         body { margin: 0; padding: 0; background-color: var(--bg-color); font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; overflow: hidden; display: flex; flex-direction: row; height: 100vh; color: var(--text-color); user-select: none; }
-        #game-wrapper { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; background: linear-gradient(to bottom, #FFFDE7, var(--bg-color)); width: 100%; height: 100%; transition: opacity 0.5s; }
+        #game-wrapper { flex: 1; position: relative; display: flex; justify-content: center; align-items: center; background: linear-gradient(to bottom, #FFFDE7, var(--bg-color)); width: 100%; height: 100%; }
         #canvas-container { position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.15); border-radius: 8px; overflow: hidden; background-color: #fff; width: 450px; height: 750px; flex-shrink: 0; max-width: 100%; max-height: 100%; }
         canvas { display: block; width: 100%; height: 100%; }
         #toggle-btn { position: absolute; top: 15px; left: 15px; z-index: 1000; background: rgba(255, 255, 255, 0.9); border: none; border-radius: 8px; padding: 8px 12px; font-size: 20px; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.2); color: #333; transition: transform 0.2s; }
@@ -40,7 +34,6 @@
         .game-over-text { font-size: 36px; font-weight: 800; margin-bottom: 10px; color: #FF5252; letter-spacing: 2px; }
         .final-score-num { font-size: 48px; font-weight: bold; margin-bottom: 30px; color: #fff; }
         .restart-btn-big { padding: 12px 36px; background: var(--accent-color); color: white; border: none; border-radius: 50px; font-size: 18px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 15px rgba(255, 112, 67, 0.5); }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         .score-board-container { background: var(--accent-color); color: white; padding: 15px; border-radius: 12px; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 10px rgba(255, 112, 67, 0.3); }
         .score-num { font-size: 32px; font-weight: bold; }
         .fruit-upload-item { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid #f1f1f1; }
@@ -52,13 +45,10 @@
         .action-btn { padding: 12px; cursor: pointer; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; width: 100%; }
         .reset-btn { background-color: #ECEFF1; color: #455A64; }
         .export-btn { background-color: #4CAF50; color: white; }
-        @media (max-width: 768px) {
-            #sidebar { width: 85%; max-width: 320px; }
-            .action-btn { padding: 14px; }
-        }
+        @media (max-width: 768px) { #sidebar { width: 85%; max-width: 320px; } .action-btn { padding: 14px; } }
     </style>
 </head>
-<body class="loading">
+<body>
 
     <div id="debug-console">
         <h3>系统启动日志 (System Log)</h3>
@@ -66,24 +56,21 @@
     </div>
 
     <script>
+        // 日志系统
         const logBox = document.getElementById('log-content');
         function log(msg, type='info') {
             const div = document.createElement('div');
             div.className = `log-${type}`;
             div.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
             logBox.appendChild(div);
-            console.log(msg);
+            if(type==='error') console.error(msg); else console.log(msg);
         }
         function logError(msg) { log(msg, 'error'); }
         function logSuccess(msg) { log(msg, 'success'); }
-
-        // 捕获全局错误
         window.onerror = function(msg, url, line) {
-            logError(`致命错误: ${msg}\n位置: 第${line}行`);
+            logError(`未捕获错误: ${msg}\n位置: ${line}行`);
             return false;
         };
-
-        log("页面结构加载完成");
     </script>
 
     <script src="https://cdn.bootcdn.net/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
@@ -119,27 +106,9 @@
     </div>
 
 <script>
-    // --- 启动检查 ---
-    log("开始检查 Matter.js 引擎...");
-    if (typeof Matter === 'undefined') {
-        logError("Matter.js 加载失败！请检查网络连接。\n尝试刷新页面。");
-        // 尝试备用源
-        log("尝试加载备用源...");
-        var script = document.createElement('script');
-        script.src = "https://lib.baomitu.com/matter-js/0.19.0/matter.min.js";
-        script.onload = function() { logSuccess("备用源加载成功！"); initAll(); };
-        document.head.appendChild(script);
-    } else {
-        logSuccess("Matter.js 引擎就绪！");
-        initAll();
-    }
-
-    // --- 全局变量 ---
-    const sidebar = document.getElementById('sidebar');
-    const overlay = document.getElementById('sidebar-overlay');
-    const isMobile = window.innerWidth <= 768;
-    if (isMobile) sidebar.classList.add('closed');
-
+    // ==========================================
+    // 1. 数据定义 (最先执行，防止 undefined 错误)
+    // ==========================================
     var FRUITS = [
         { name: "葡萄", radius: 25, color: "#BA68C8", level: 0, img: null },
         { name: "樱桃", radius: 35, color: "#EF5350", level: 1, img: null },
@@ -160,27 +129,56 @@
     const GAME_WIDTH = 450;
     const GAME_HEIGHT = 750;
 
+    // 全局变量定义
     let Engine, Render, Runner, Bodies, World, Events, Composite;
     let engine = null, render = null, runner = null, currentFruit = null;
     let isDropping = false, isGameOver = false, score = 0, dangerTimer = 0;
 
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const isMobile = window.innerWidth <= 768;
+    
+    // 初始化侧边栏状态
+    if (isMobile) sidebar.classList.add('closed');
+
+    // ==========================================
+    // 2. 函数定义
+    // ==========================================
+
     function initAll() {
         try {
-            log("初始化游戏逻辑...");
+            log("正在初始化界面...");
             initUI();
+            log("正在启动游戏引擎...");
             startGame();
             
-            // 成功启动后，隐藏日志，显示游戏
-            logSuccess("游戏启动成功！正在进入...");
+            // 成功后隐藏日志
+            logSuccess("启动成功！");
             setTimeout(() => {
                 document.getElementById('debug-console').style.display = 'none';
-                document.body.classList.remove('loading');
-            }, 1000);
-            
+            }, 800);
         } catch (e) {
-            logError("初始化崩溃: " + e.message);
+            logError("启动过程出错: " + e.message);
             console.error(e);
         }
+    }
+
+    function initUI() {
+        const list = document.getElementById('upload-list');
+        // 这里的 FRUITS 现在一定已经定义了
+        list.innerHTML = '';
+        FRUITS.forEach((fruit, index) => {
+            const div = document.createElement('div');
+            div.className = 'fruit-upload-item';
+            div.innerHTML = `
+                <div class="preview-circle" id="preview-${index}" style="background-color: ${fruit.color}; ${fruit.img ? 'background-image:url('+fruit.img+')' : ''}"></div>
+                <div class="fruit-name">${fruit.name}</div>
+                <label for="file-${index}" class="custom-file-upload" id="label-${index}">${fruit.img ? '已设置' : '选择'}</label>
+                <input type="file" id="file-${index}" accept="image/*">
+            `;
+            list.appendChild(div);
+            document.getElementById(`file-${index}`).addEventListener('change', (e) => handleImageUpload(e, index));
+        });
     }
 
     function toggleSidebar() {
@@ -239,23 +237,6 @@
 
         Events.on(engine, 'collisionStart', handleCollision);
         Events.on(engine, 'afterUpdate', checkGameOverLogic);
-    }
-
-    function initUI() {
-        const list = document.getElementById('upload-list');
-        list.innerHTML = '';
-        FRUITS.forEach((fruit, index) => {
-            const div = document.createElement('div');
-            div.className = 'fruit-upload-item';
-            div.innerHTML = `
-                <div class="preview-circle" id="preview-${index}" style="background-color: ${fruit.color}; ${fruit.img ? 'background-image:url('+fruit.img+')' : ''}"></div>
-                <div class="fruit-name">${fruit.name}</div>
-                <label for="file-${index}" class="custom-file-upload" id="label-${index}">${fruit.img ? '已设置' : '选择'}</label>
-                <input type="file" id="file-${index}" accept="image/*">
-            `;
-            list.appendChild(div);
-            document.getElementById(`file-${index}`).addEventListener('change', (e) => handleImageUpload(e, index));
-        });
     }
 
     function processCircularImage(imgDataUrl, callback) {
@@ -339,7 +320,6 @@
     function handleEnd() {
         if (!currentFruit || isDropping || isGameOver) return;
         if (sidebar.contains(event.target) || document.getElementById('toggle-btn').contains(event.target)) return;
-
         isDropping = true;
         currentFruit.isDropping = true;
         Matter.Body.setStatic(currentFruit, false);
@@ -407,9 +387,8 @@
     function exportGame() {
         if (!confirm("导出将生成一个包含当前图片的新文件，可直接发送给朋友。\n确定导出吗？")) return;
         const docClone = document.documentElement.cloneNode(true);
-        // 移除调试控制台
+        // 移除日志系统
         docClone.querySelector('#debug-console').remove();
-        docClone.body.classList.remove('loading');
         
         const canvasContainer = docClone.querySelector('#canvas-container');
         const oldCanvas = canvasContainer.querySelector('canvas');
@@ -426,10 +405,32 @@
         const blob = new Blob([htmlContent], { type: 'text/html' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = '我的合成大西瓜_修复版.html';
+        a.download = '我的合成大西瓜.html';
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+    }
+
+    // ==========================================
+    // 3. 启动逻辑 (最后执行，确保数据已就绪)
+    // ==========================================
+    
+    log("开始检查 Matter.js 引擎...");
+    if (typeof Matter === 'undefined') {
+        logError("Matter.js 加载失败！\n尝试加载备用源...");
+        var script = document.createElement('script');
+        script.src = "https://lib.baomitu.com/matter-js/0.19.0/matter.min.js";
+        script.onload = function() { 
+            logSuccess("备用源加载成功！"); 
+            initAll(); 
+        };
+        script.onerror = function() {
+            logError("备用源也加载失败！请检查网络连接。");
+        };
+        document.head.appendChild(script);
+    } else {
+        logSuccess("Matter.js 引擎就绪！");
+        initAll();
     }
 </script>
 </body>
